@@ -25,10 +25,7 @@ class CsvUploader extends StatefulWidget {
       Map<String, List<String>> details,
       ) onResultGenerated;
 
-  const CsvUploader({
-    super.key,
-    required this.onResultGenerated,
-  });
+  const CsvUploader({super.key, required this.onResultGenerated});
 
   @override
   State<CsvUploader> createState() => _CsvUploaderState();
@@ -41,7 +38,7 @@ class _CsvUploaderState extends State<CsvUploader> {
 
   String? errorMessage;
 
-  final TextEditingController appNameController = TextEditingController(text:  "App Name");
+  final TextEditingController appNameController = TextEditingController(text: "App Name");
   final TextEditingController ownerNameController = TextEditingController(text: "Owner Name");
 
   bool isValidating = false;
@@ -66,115 +63,160 @@ class _CsvUploaderState extends State<CsvUploader> {
       type: FileType.custom,
       allowedExtensions: ['csv'],
     );
+
     final path = result?.files.single.path;
     if (path != null) {
       final content = await File(path).readAsString();
       final table = CsvToListConverter().convert(content);
       if (table.isNotEmpty) {
+        final parsedHeaders = table.first.map((e) => e.toString().trim()).toList();
         setState(() {
-          headers = table.first.map((e) => e.toString().trim()).toList();
+          headers = parsedHeaders;
           csvTable = table;
+
           mappedFields = {
             for (final field in mandatoryFields)
-              field: headers.firstWhere(
-                    (h) => h.toLowerCase() == field.toLowerCase(),
-                orElse: () => "null",
-              )
+              field: parsedHeaders.contains(field) ? field : null,
           };
-          final unmapped = mappedFields.entries
-              .where((e) => e.value == null)
-              .map((e) => e.key)
-              .toList();
-          if (unmapped.isNotEmpty) {
-            errorMessage =
-            '⚠️ Missing mappings for: ${unmapped.join(', ')}. Please fix below.';
-          } else {
-            errorMessage = null;
-          }
+
+          final missingFields = mappedFields.entries.where((e) => e.value == null).map((e) => e.key).toList();
+
+          errorMessage = missingFields.isNotEmpty
+              ? '❌ Missing mandatory fields: ${missingFields.join(", ")}'
+              : null;
         });
       }
     }
   }
 
   Future<void> validateCsvData() async {
-    setState(() {
-      isValidating = true;
-      validationPassed = false;
-    });
+    int activeCount = 0;
+    int inactiveCount = 0;
+    Set<String> uniqueGroups = {};
+    Set<String> uniqueManagers = {};
+    Set<String> uniqueDepartments = {};
+    List<String> allUsers = [];
+    List<String> activeUsers = [];
+    List<String> inactiveUsers = [];
+    List<String> expiringUsers = [];
+    List<String> activeWithPastEndDate = [];
+    List<String> inactiveWithFutureEndDate = [];
+    List<String> noManager = [];
+    List<String> missingDisplayName = [];
+    List<String> missingTitle = [];
+    List<String> missingDepartment = [];
+    List<String> noStatus = [];
+    List<String> noGroups = [];
+    List<String> specialCharDisplayName = [];
 
-    await Future.delayed(const Duration(seconds: 2)); // Simulate loading
+    final statusIndex = mappedFields['Status'] != null ? headers.indexOf(mappedFields['Status']!) : -1;
+    final displayNameIndex = mappedFields['DisplayName'] != null ? headers.indexOf(mappedFields['DisplayName']!) : -1;
+    final groupsIndex = mappedFields['Groups'] != null ? headers.indexOf(mappedFields['Groups']!) : -1;
+    final managerIndex = mappedFields['ManagerID'] != null ? headers.indexOf(mappedFields['ManagerID']!) : -1;
+    final departmentIndex = mappedFields['Department'] != null ? headers.indexOf(mappedFields['Department']!) : -1;
+    final titleIndex = mappedFields['Title'] != null ? headers.indexOf(mappedFields['Title']!) : -1;
+    final endDateIndex = mappedFields['EndDate'] != null ? headers.indexOf(mappedFields['EndDate']!) : -1;
 
-    bool validDates = true;
-    bool hasNulls = false;
-    bool validTypes = true;
-    bool hasGroups = false;
-
-    int dateColumnIndex = mappedFields.entries.firstWhere(
-          (e) => e.key.toLowerCase().contains("date"),
-      orElse: () => const MapEntry("", null),
-    ).value != null
-        ? headers.indexOf(mappedFields.entries
-        .firstWhere((e) => e.key.toLowerCase().contains("date"))
-        .value!)
-        : -1;
+    final today = DateTime.now();
 
     for (int i = 1; i < csvTable.length; i++) {
       final row = csvTable[i];
+      final name = displayNameIndex >= 0 && displayNameIndex < row.length ? row[displayNameIndex].toString().trim() : '';
+      final status = statusIndex >= 0 && statusIndex < row.length ? row[statusIndex].toString().toLowerCase().trim() : '';
+      final manager = managerIndex >= 0 && managerIndex < row.length ? row[managerIndex].toString().trim() : '';
+      final department = departmentIndex >= 0 && departmentIndex < row.length ? row[departmentIndex].toString().trim() : '';
+      final title = titleIndex >= 0 && titleIndex < row.length ? row[titleIndex].toString().trim() : '';
+      final groups = groupsIndex >= 0 && groupsIndex < row.length ? row[groupsIndex].toString().trim() : '';
 
-      if (row.contains(null) || row.contains("")) {
-        hasNulls = true;
+      if (name.isNotEmpty) allUsers.add(name);
+      if (status == 'active') {
+        activeCount++;
+        activeUsers.add(name);
       }
+      if (status == 'inactive') {
+        inactiveCount++;
+        inactiveUsers.add(name);
+      }
+      if (groups.isEmpty) noGroups.add(name);
 
-      if (dateColumnIndex >= 0 && dateColumnIndex < row.length) {
-        final dateVal = row[dateColumnIndex].toString();
-        if (!RegExp(r'\d{4}-\d{2}-\d{2}').hasMatch(dateVal)) {
-          validDates = false;
+      if (groups.isNotEmpty) {
+        for (var g in groups.split(';')) {
+          final clean = g.trim();
+          if (clean.isNotEmpty) uniqueGroups.add(clean);
         }
       }
 
-      final idIndex = mappedFields["EmployeeID"] != null
-          ? headers.indexOf(mappedFields["EmployeeID"]!)
-          : -1;
-      if (idIndex >= 0 && idIndex < row.length) {
-        if (int.tryParse(row[idIndex].toString()) == null) {
-          validTypes = false;
+      if (manager.isEmpty) noManager.add(name);
+      if (name.isEmpty) missingDisplayName.add(name);
+      if (title.isEmpty) missingTitle.add(name);
+      if (department.isEmpty) missingDepartment.add(name);
+      if (status.isEmpty) noStatus.add(name);
+
+      final specialCharPattern = RegExp(r'[^\w\s]');
+      if (specialCharPattern.hasMatch(name)) specialCharDisplayName.add(name);
+
+      if (endDateIndex >= 0 && endDateIndex < row.length) {
+        final rawDate = row[endDateIndex].toString().trim();
+        final dateParts = rawDate.split('-');
+        if (dateParts.length == 3) {
+          final day = int.tryParse(dateParts[0]);
+          final month = int.tryParse(dateParts[1]);
+          final year = int.tryParse(dateParts[2]);
+          if (day != null && month != null && year != null) {
+            final endDate = DateTime(year, month, day);
+            final diff = endDate.difference(today).inDays;
+
+            if (diff >= 0 && diff <= 7) expiringUsers.add(name);
+            if (status == 'active' && diff < 0) activeWithPastEndDate.add(name);
+            if (status == 'inactive' && diff >= 0) inactiveWithFutureEndDate.add(name);
+          }
         }
       }
 
-      final groupIndex = mappedFields["Groups"] != null
-          ? headers.indexOf(mappedFields["Groups"]!)
-          : -1;
-      if (groupIndex >= 0 && groupIndex < row.length) {
-        if (row[groupIndex].toString().isNotEmpty) {
-          hasGroups = true;
-        }
-      }
+      if (department.isNotEmpty) uniqueDepartments.add(department);
+      if (manager.isNotEmpty) uniqueManagers.add(manager);
     }
 
-    if (!validDates) {
-      errorMessage = "❌ Invalid date format detected.";
-    } else if (hasNulls) {
-      errorMessage = "❌ Null values found.";
-    } else if (!validTypes) {
-      errorMessage = "❌ EmployeeID must be an integer.";
-    } else if (!hasGroups) {
-      errorMessage = "❌ Group information missing.";
-    } else {
-      errorMessage = null;
-      validationPassed = true;
-    }
+    Map<String, dynamic> stats = {
+      'Display Name': allUsers.length,
+      'Status': {'Active': activeCount, 'Inactive': inactiveCount},
+      'Group': uniqueGroups.length,
+      'Manager': uniqueManagers.length,
+      'Department': uniqueDepartments.length,
+      'End Date': expiringUsers.length,
+    };
+
+    Map<String, List<String>> details = {
+      'AllUsers': allUsers,
+      'ActiveUsers': activeUsers,
+      'InactiveUsers': inactiveUsers,
+      'UniqueGroups': uniqueGroups.toList(),
+      'UniqueManagers': uniqueManagers.toList(),
+      'UniqueDepartments': uniqueDepartments.toList(),
+      'ExpiringUsers': expiringUsers,
+      'ActiveWithPastEndDate': activeWithPastEndDate,
+      'InactiveWithFutureEndDate': inactiveWithFutureEndDate,
+      'NoManager': noManager,
+      'MissingDisplayName': missingDisplayName,
+      'MissingTitle': missingTitle,
+      'MissingDepartment': missingDepartment,
+      'NoStatus': noStatus,
+      'NoGroups': noGroups,
+      'SpecialCharDisplayName': specialCharDisplayName,
+    };
 
     setState(() {
-      isValidating = false;
+      validationPassed = true;
     });
+
+    widget.onResultGenerated(stats, details);
   }
 
   void onBeginPressed() {
-    // Do your final processing here
-    widget.onResultGenerated(
-      {'appName': appNameController.text, 'ownerName': ownerNameController.text},
-      mappedFields.map((k, v) => MapEntry(k, [v ?? ''])),
-    );
+    widget.onResultGenerated({
+      'appName': appNameController.text,
+      'ownerName': ownerNameController.text,
+    }, mappedFields.map((k, v) => MapEntry(k, [v ?? ''])));
   }
 
   @override
@@ -186,20 +228,11 @@ class _CsvUploaderState extends State<CsvUploader> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextBox(
-
-              controller: appNameController,
-            ),
+            TextBox(controller: appNameController),
             const SizedBox(height: 10),
-            TextBox(
-
-              controller: ownerNameController,
-            ),
+            TextBox(controller: ownerNameController),
             const SizedBox(height: 10),
-            Button(
-              child: const Text('Upload CSV'),
-              onPressed: pickCsvFile,
-            ),
+            Button(child: const Text('Upload CSV'), onPressed: pickCsvFile),
             const SizedBox(height: 20),
             if (headers.isNotEmpty)
               Expanded(
@@ -233,24 +266,18 @@ class _CsvUploaderState extends State<CsvUploader> {
                                       onChanged: (v) {
                                         setState(() {
                                           mappedFields[field] = v;
-                                          final unmapped = mappedFields.entries
+                                          final stillMissing = mappedFields.entries
                                               .where((e) => e.value == null)
                                               .map((e) => e.key)
                                               .toList();
-                                          if (unmapped.isNotEmpty) {
-                                            errorMessage =
-                                            '⚠️ Missing mappings for: ${unmapped.join(', ')}.';
-                                          } else {
-                                            errorMessage = null;
-                                          }
+                                          errorMessage = stillMissing.isNotEmpty
+                                              ? '❌ Missing mandatory fields: ${stillMissing.join(", ")}'
+                                              : null;
                                         });
                                       },
                                     ),
                                     if (missing)
-                                       Text(
-                                        '❌ Missing header',
-                                        style: TextStyle(color: Colors.red),
-                                      ),
+                                       Text('❌ Missing header', style: TextStyle(color: Colors.red)),
                                   ],
                                 ),
                               );
@@ -261,20 +288,13 @@ class _CsvUploaderState extends State<CsvUploader> {
                     ),
                     const SizedBox(height: 10),
                     if (errorMessage != null)
-                      Text(
-                        errorMessage!,
-                        style:  TextStyle(color: Colors.red),
-                      ),
+                      Text(errorMessage!, style: TextStyle(color: Colors.red)),
                     const SizedBox(height: 20),
                     Button(
-                      child: isValidating
-                          ? const ProgressRing()
-                          : validationPassed
+                      child: validationPassed
                           ? const Icon(FluentIcons.check_mark)
-                          : const Text('Next'),
-                      onPressed: isValidating || validationPassed
-                          ? null
-                          : validateCsvData,
+                          : const Text('Validate'),
+                      onPressed: validationPassed ? null : validateCsvData,
                     ),
                     const SizedBox(height: 10),
                     if (validationPassed)
@@ -318,12 +338,7 @@ class _DropdownColumn extends StatelessWidget {
         ComboBox<String>(
           placeholder: Text(placeholder),
           isExpanded: true,
-          items: headers
-              .map((header) => ComboBoxItem<String>(
-            value: header,
-            child: Text(header),
-          ),)
-              .toList(),
+          items: headers.map((header) => ComboBoxItem<String>(value: header, child: Text(header))).toList(),
           value: value,
           onChanged: onChanged,
         ),
