@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:hive/hive.dart';
 import 'package:lottie/lottie.dart';
+import 'package:wisibility/Pages/db/user_db.dart';
 import 'package:wisibility/navBar.dart';
 
 
@@ -36,7 +36,6 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   Future<void> _handleAuth() async {
-    final box = await Hive.openBox('userBox');
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
 
@@ -46,14 +45,14 @@ class _AuthPageState extends State<AuthPage> {
     }
 
     if (isLogin) {
-      final savedEmail = box.get('email');
-      final savedPassword = box.get('password');
-      if (savedEmail == email && savedPassword == password) {
-        if (rememberMe) {
-          await box.put('isLoggedIn', true);
-        } else {
-          await box.put('isLoggedIn', false);
-        }
+      // ✅ Pass rememberMe here!
+      final result = await MongoUserDB.login(
+        email,
+        password,
+        rememberMe: rememberMe,
+      );
+
+      if (result == null) {
         _showInfo('Login successful!');
         Navigator.pushReplacement(
           context,
@@ -65,15 +64,18 @@ class _AuthPageState extends State<AuthPage> {
           ),
         );
       } else {
-        _showInfo('Invalid credentials.');
+        _showInfo(result);
       }
     } else {
-      await box.put('email', email);
-      await box.put('password', password);
-      _showInfo('Sign up successful! Now sign in.');
-      setState(() {
-        isLogin = true;
-      });
+      final result = await MongoUserDB.signUp(email, password);
+      if (result == null) {
+        _showInfo('Sign up successful! Now sign in.');
+        setState(() {
+          isLogin = true;
+        });
+      } else {
+        _showInfo(result);
+      }
     }
   }
 
@@ -82,8 +84,7 @@ class _AuthPageState extends State<AuthPage> {
     return NavigationView(
       content: Row(
         children: [
-          // LEFT PANEL
-
+// LEFT PANEL
           Expanded(
             flex: 3,
             child: Container(
@@ -96,7 +97,7 @@ class _AuthPageState extends State<AuthPage> {
               ),
             ),
           ),
-          // RIGHT PANEL
+// RIGHT PANEL
           Expanded(
             flex: 2,
             child: Container(
@@ -212,3 +213,7 @@ class _AuthPageState extends State<AuthPage> {
     );
   }
 }
+
+
+
+

@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:get/get.dart';
-import 'package:hive/hive.dart';
-
+import 'package:get_storage/get_storage.dart';
 import 'package:wisibility/Pages/csvuploder.dart';
 import 'package:wisibility/Pages/home.dart';
 import 'package:wisibility/Pages/mapping.dart';
@@ -39,11 +38,12 @@ class _NavBarState extends State<NavBar> {
   Map<String, dynamic>? resultStats;
   Map<String, List<String>>? resultDetails;
 
-  void logout(BuildContext context) async {
-    var box = Hive.box('userBox');
-    await box.put('isLoggedIn', false);
+  Future<void> logout(BuildContext context) async {
+    final box = GetStorage();
+    await box.remove('currentUser');
 
-    Navigator.pushAndRemoveUntil(
+    // Go back to login screen if needed:
+    Navigator.pushReplacement(
       context,
       FluentPageRoute(
         builder: (_) => AuthPage(
@@ -51,9 +51,9 @@ class _NavBarState extends State<NavBar> {
           toggleTheme: widget.onToggleTheme,
         ),
       ),
-      (_) => false,
     );
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +85,7 @@ class _NavBarState extends State<NavBar> {
         children: [
           const Expanded(
             child: Text(
-              'Wisibility',
+              'Identity Compliance Manager',
               style: TextStyle(
                 color: Color(0xFFF3F3F3),
                 fontWeight: FontWeight.bold,
@@ -175,18 +175,14 @@ class _NavBarState extends State<NavBar> {
           icon: const Icon(FluentIcons.certificate),
           child: CertificationPage(),
         ),
-        panWidget(
-          title: 'Data Mapping',
-          icon: const Icon(FluentIcons.knowledge_management_app),
-          child: DataMapping(),
-        ),
+
         panWidget(
           title: 'SOD & Role Mining',
           icon: const Icon(FluentIcons.rocket),
           child: DataMapping(),
         ),
         panWidget(
-          title: 'Access Audit',
+          title: 'Auditing & Reporting',
           icon: const Icon(FluentIcons.field_not_changed),
           child: (resultStats != null && resultDetails != null)
               ? CsvResultsPage(stats: resultStats!, details: resultDetails!)
@@ -227,6 +223,11 @@ class _NavBarState extends State<NavBar> {
               child: csvTable.isEmpty
                   ? Container()
                   : SodPage(csvTable: csvTable),
+            ),
+            panWidget(
+              title: 'Data Mapping',
+              icon: const Icon(FluentIcons.knowledge_management_app),
+              child: DataMapping(),
             ),
           ],
         ),
